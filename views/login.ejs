@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>WhatsApp Login</title>
+  </head>
+  <body>
+    <h1>Login WhatsApp</h1>
+    <% if (qr) { %>
+    <p>Scan QR code below with WhatsApp:</p>
+    <img src="<%= qr %>" alt="QR Code" />
+    <script>
+      setInterval(async () => {
+        const res = await fetch("/qr");
+        const data = await res.json();
+        if (data.qr) {
+          document.querySelector("img").src = data.qr;
+        } else if (data.waState) {
+          window.location.href = "/";
+        }
+      }, 5000);
+    </script>
+    <% } else { %>
+    <p>Waiting for QR code...</p>
+    <% } %>
+  </body>
+</html>
