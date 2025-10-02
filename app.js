@@ -5,7 +5,7 @@ const logger = require("./logger");
 const { MessageMedia } = require("whatsapp-web.js");
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 4000;
 
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
