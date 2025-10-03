@@ -14,7 +14,7 @@ class WhatsAppService {
     this.client = new Client({
       authStrategy: new LocalAuth({
         clientId: this.sessionKey,
-        dataPath: "C:\\wwebjs_session",
+        // dataPath: "C:\\wwebjs_session",
       }),
       webVersionCache: {
         type: "local",
