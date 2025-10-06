@@ -24,6 +24,10 @@ app.get("/", (req, res) => {
   }
 });
 
+app.get("/debug", (req, res) => {
+  res.render("login-debug", { qr: waService.qrCode, loggedIn: false });
+});
+
 app.get("/logout", async (req, res) => {
   await waService.logout();
   res.redirect("/");
@@ -43,10 +47,49 @@ app.get("/status", async (req, res) => {
       connected: await waService.isConnected(),
       restarting: waService.restarting,
       hasQR: !!waService.qrCode,
+      qrLength: waService.qrCode ? waService.qrCode.length : 0,
       environment: process.platform,
       timestamp: new Date().toISOString()
     };
     res.json(status);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Debug endpoints
+app.post("/debug/clear-session", async (req, res) => {
+  try {
+    logger.info("Manual session clear requested");
+    await waService.removeSession();
+    res.json({ status: "Session cleared successfully" });
+  } catch (error) {
+    logger.error(error, "Error clearing session");
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/debug/force-restart", async (req, res) => {
+  try {
+    logger.info("Manual restart requested");
+    await waService.restart();
+    res.json({ status: "Restart initiated" });
+  } catch (error) {
+    logger.error(error, "Error restarting service");
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/debug/qr-raw", async (req, res) => {
+  try {
+    const qrData = {
+      hasQR: !!waService.qrCode,
+      qrLength: waService.qrCode ? waService.qrCode.length : 0,
+      qrPreview: waService.qrCode ? waService.qrCode.substring(0, 100) + "..." : null,
+      clientReady: waService.clientReady,
+      restarting: waService.restarting
+    };
+    res.json(qrData);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -116,5 +159,5 @@ app.get("/conversations", async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  logger.info(`Server running on http://localhost:${PORT}`);
+  logger.info(`Server running on http://13.212.75.243:${PORT}`);
 });
