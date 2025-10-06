@@ -2,9 +2,79 @@
 <html>
   <head>
     <title>WhatsApp Connected</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        text-align: center;
+        padding: 20px;
+      }
+      .status {
+        margin: 20px 0;
+        padding: 15px;
+        border-radius: 5px;
+        background-color: #e8f5e8;
+        color: #2e7d32;
+      }
+      .actions {
+        margin: 20px 0;
+      }
+      .btn {
+        padding: 10px 20px;
+        margin: 0 10px;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-block;
+      }
+      .btn-logout {
+        background-color: #f44336;
+        color: white;
+      }
+      .btn-status {
+        background-color: #2196F3;
+        color: white;
+      }
+    </style>
   </head>
   <body>
     <h1>WhatsApp Connected!</h1>
-    <a href="/logout">Logout</a>
+    <div class="status">
+      ✅ WhatsApp is ready and connected
+    </div>
+    
+    <div class="actions">
+      <a href="/status" class="btn btn-status" target="_blank">Check Status</a>
+      <a href="/logout" class="btn btn-logout">Logout</a>
+    </div>
+    
+    <div id="connection-status"></div>
+    
+    <script>
+      // Periodically check connection status
+      async function checkConnection() {
+        try {
+          const res = await fetch("/status");
+          const status = await res.json();
+          const statusDiv = document.getElementById('connection-status');
+          
+          if (!status.connected || !status.clientReady) {
+            statusDiv.innerHTML = '<div style="color: orange;">⚠️ Connection issue detected. You may be redirected to login.</div>';
+            // Redirect to login if not connected
+            setTimeout(() => {
+              window.location.href = "/";
+            }, 3000);
+          } else {
+            statusDiv.innerHTML = '';
+          }
+        } catch (error) {
+          console.error('Status check failed:', error);
+        }
+      }
+      
+      // Check every 10 seconds
+      setInterval(checkConnection, 10000);
+      checkConnection(); // Initial check
+    </script>
   </body>
 </html>

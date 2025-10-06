@@ -2,25 +2,96 @@
 <html>
   <head>
     <title>WhatsApp Login</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        text-align: center;
+        padding: 20px;
+      }
+      .loading {
+        color: #666;
+      }
+      .qr-container {
+        margin: 20px 0;
+      }
+      .status {
+        margin: 10px 0;
+        padding: 10px;
+        border-radius: 5px;
+      }
+      .error {
+        background-color: #ffebee;
+        color: #c62828;
+      }
+      .success {
+        background-color: #e8f5e8;
+        color: #2e7d32;
+      }
+    </style>
   </head>
   <body>
     <h1>Login WhatsApp</h1>
+    <div id="status"></div>
     <% if (qr) { %>
     <p>Scan QR code below with WhatsApp:</p>
-    <img src="<%= qr %>" alt="QR Code" />
-    <script>
-      setInterval(async () => {
-        const res = await fetch("/qr");
-        const data = await res.json();
-        if (data.qr) {
-          document.querySelector("img").src = data.qr;
-        } else if (data.waState) {
-          window.location.href = "/";
-        }
-      }, 5000);
-    </script>
+    <div class="qr-container">
+      <img src="<%= qr %>" alt="QR Code" />
+    </div>
     <% } else { %>
-    <p>Waiting for QR code...</p>
+    <p class="loading">Waiting for QR code...</p>
     <% } %>
+    
+    <script>
+      let retryCount = 0;
+      const maxRetries = 5;
+      
+      function updateStatus(message, type = 'info') {
+        const statusDiv = document.getElementById('status');
+        statusDiv.innerHTML = `<div class="status ${type}">${message}</div>`;
+      }
+      
+      async function checkStatus() {
+        try {
+          const res = await fetch("/qr");
+          const data = await res.json();
+          
+          if (data.waState) {
+            updateStatus('Connected! Redirecting...', 'success');
+            setTimeout(() => {
+              window.location.href = "/";
+            }, 1000);
+          } else if (data.qr) {
+            const img = document.querySelector("img");
+            if (img) {
+              img.src = data.qr;
+            } else {
+              // Create img if it doesn't exist
+              const container = document.querySelector(".qr-container") || document.body;
+              container.innerHTML = `<img src="${data.qr}" alt="QR Code" />`;
+            }
+            updateStatus('QR Code ready - please scan with WhatsApp');
+            retryCount = 0; // Reset retry count on success
+          } else {
+            updateStatus('Generating QR code...', 'loading');
+          }
+        } catch (error) {
+          retryCount++;
+          console.error('Status check error:', error);
+          
+          if (retryCount >= maxRetries) {
+            updateStatus('Connection error. Please refresh the page.', 'error');
+            return;
+          }
+          
+          updateStatus(`Connection issue (retry ${retryCount}/${maxRetries})...`, 'error');
+        }
+      }
+      
+      // Initial check
+      checkStatus();
+      
+      // Poll every 3 seconds
+      setInterval(checkStatus, 3000);
+    </script>
   </body>
 </html>
