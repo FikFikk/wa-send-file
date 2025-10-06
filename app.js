@@ -31,11 +31,40 @@ app.get("/logout", async (req, res) => {
 
 // API to get QR code (for AJAX polling)
 app.get("/qr", async (req, res) => {
-  res.json({ qr: waService.qrCode, waState: await waService.isConnected() });
+  try {
+    const waState = await waService.isConnected();
+    res.json({ qr: waService.qrCode, waState });
+  } catch (error) {
+    logger.error(error, "Error getting QR code");
+    res.json({ qr: waService.qrCode, waState: false });
+  }
+});
+
+// Status endpoint
+app.get("/status", async (req, res) => {
+  try {
+    const connected = await waService.isConnected();
+    const clientReady = waService.clientReady;
+    res.json({ 
+      connected, 
+      clientReady,
+      authenticated: waService.isAuthenticated()
+    });
+  } catch (error) {
+    logger.error(error, "Error getting status");
+    res.json({ connected: false, clientReady: false, authenticated: false });
+  }
 });
 
 app.post("/send-file", async (req, res) => {
   try {
+    if (!waService.clientReady) {
+      return res.status(400).json({ 
+        status: "error", 
+        message: "WhatsApp client is not ready" 
+      });
+    }
+
     const { fileUrl, chatId, fileName } = req.body;
     const file = await MessageMedia.fromUrl(fileUrl, {
       mime: "application/pdf",
@@ -51,6 +80,13 @@ app.post("/send-file", async (req, res) => {
 
 app.get("/conversations", async (req, res) => {
   try {
+    if (!waService.clientReady) {
+      return res.status(400).json({ 
+        status: "error", 
+        message: "WhatsApp client is not ready" 
+      });
+    }
+
     const { phone } = req.query;
     const chat = await waService.client.getChats();
     const conversation = await chat[0].fetchMessages({ limit: 20 });
@@ -60,6 +96,7 @@ app.get("/conversations", async (req, res) => {
       conversation: conversation.reverse(),
     });
   } catch (error) {
+    logger.error(error, "Error getting conversations");
     return res.status(500).json({ status: "error", message: error.message });
   }
 });
