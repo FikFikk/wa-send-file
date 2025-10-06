@@ -52,7 +52,10 @@ class WhatsAppService {
             clientId: this.sessionKey,
             dataPath: './.wwebjs_auth'
           }),
-          webVersionCache: { type: "local" },
+          webVersionCache: { 
+            type: 'remote', 
+            remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html' 
+          },
           puppeteer: {
             headless: 'new',
             timeout: 0,
@@ -116,7 +119,10 @@ class WhatsAppService {
       try {
         const windowsConfig = {
           authStrategy: new LocalAuth({ clientId: this.sessionKey }),
-          webVersionCache: { type: "local" },
+          webVersionCache: { 
+            type: 'remote', 
+            remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html' 
+          },
           puppeteer: {
             headless: true,
             executablePath: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
@@ -158,7 +164,10 @@ class WhatsAppService {
             clientId: this.sessionKey,
             dataPath: './.wwebjs_auth'
           }),
-          webVersionCache: { type: "local" },
+          webVersionCache: { 
+            type: 'remote', 
+            remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html' 
+          },
           puppeteer: {
             headless: true,
             executablePath: path,

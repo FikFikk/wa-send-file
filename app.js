@@ -15,7 +15,7 @@ app.use(express.urlencoded({ extended: false }));
 
 // WhatsApp Service
 const waService = new WhatsAppService();
-console.log("✅ WhatsApp Service instance created");
+console.log("WhatsApp Service instance created");
 
 app.get("/", (req, res) => {
   if (waService.isAuthenticated()) {
