@@ -25,7 +25,8 @@ class WhatsAppService {
       puppeteer: {
         headless: true,
         // Auto-detect Chrome path for different OS
-        executablePath: this.getChromePath(),
+        // executablePath: this.getChromePath(),
+        executablePath: '/usr/bin/chromium-browser',
         args: [
           "--no-sandbox",
           "--disable-setuid-sandbox",
