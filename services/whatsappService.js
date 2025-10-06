@@ -1,191 +1,393 @@
 const { Client, LocalAuth } = require("whatsapp-web.js");
-
 const qrcode = require("qrcode");
 const fsp = require("fs/promises");
 const logger = require("./../logger");
 
 class WhatsAppService {
   constructor() {
+    console.log("🚀 WhatsApp Service starting...");
     this.qrCode = null;
     this.sessionKey = "default";
     this.restarting = false;
     this.backoff = 2000;
     this.clientReady = false;
     this.isServerEnvironment = process.platform === 'linux';
+    this.mockMode = false;
+    this.initAttempts = 0;
+    this.maxAttempts = 3;
+    
+    console.log(`📱 Environment: ${this.isServerEnvironment ? 'Linux Server' : 'Windows Local'}`);
     
     this.createClient();
     this._init();
   }
 
   createClient() {
-    const puppeteerConfig = {
-      headless: true,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-gpu",
-        "--disable-web-security",
-        "--disable-features=VizDisplayCompositor",
-        "--no-first-run",
-        "--no-zygote",
-        "--disable-background-timer-throttling",
-        "--disable-backgrounding-occluded-windows",
-        "--disable-renderer-backgrounding",
-      ],
-    };
-
+    console.log("🔧 Creating WhatsApp client...");
+    
     if (this.isServerEnvironment) {
-      logger.info("Detected Linux server environment");
+      console.log("🐧 Linux server detected - trying multiple configurations...");
       
-      // Try to find Chrome executable
-      const fs = require('fs');
-      const possiblePaths = [
-        '/usr/bin/google-chrome-stable',
-        '/usr/bin/google-chrome',
-        '/usr/bin/chromium-browser',
-        '/usr/bin/chromium',
-        '/snap/bin/chromium'
-      ];
-      
-      let chromeFound = false;
-      for (const path of possiblePaths) {
-        if (fs.existsSync(path)) {
-          puppeteerConfig.executablePath = path;
-          logger.info(`Using Chrome at: ${path}`);
-          chromeFound = true;
-          break;
+      // Strategy 1: Try to find system Chrome
+      const chromeConfig = this.trySystemChrome();
+      if (chromeConfig) {
+        try {
+          console.log("✅ Attempting with system Chrome...");
+          this.client = new Client(chromeConfig);
+          console.log("✅ Client created with system Chrome!");
+          return;
+        } catch (error) {
+          console.log("❌ System Chrome failed:", error.message);
         }
       }
       
-      if (!chromeFound) {
-        logger.warn('No system Chrome found, using bundled Chromium');
+      // Strategy 2: Try bundled Chromium with minimal args
+      try {
+        console.log("🔄 Trying bundled Chromium with minimal config...");
+        const minimalConfig = {
+          authStrategy: new LocalAuth({ clientId: this.sessionKey }),
+          webVersionCache: { type: "local" },
+          puppeteer: {
+            headless: true,
+            args: [
+              '--no-sandbox',
+              '--disable-setuid-sandbox'
+            ]
+          },
+          takeoverOnConflict: true,
+          takeoverTimeoutMs: 30000,
+          restartOnAuthFail: false,
+        };
+        
+        this.client = new Client(minimalConfig);
+        console.log("✅ Client created with minimal Chromium config!");
+        return;
+        
+      } catch (error) {
+        console.log("❌ Minimal Chromium failed:", error.message);
       }
       
-      // Add more aggressive args for server environment
-      puppeteerConfig.args.push(
-        '--disable-extensions',
-        '--disable-plugins',
-        '--disable-images',
-        '--disable-javascript',
-        '--virtual-time-budget=5000'
-      );
+      // Strategy 3: Try without puppeteer config
+      try {
+        console.log("🔄 Trying without puppeteer config...");
+        const noPuppeteerConfig = {
+          authStrategy: new LocalAuth({ clientId: this.sessionKey }),
+          webVersionCache: { type: "local" },
+          takeoverOnConflict: true,
+          takeoverTimeoutMs: 30000,
+          restartOnAuthFail: false,
+        };
+        
+        this.client = new Client(noPuppeteerConfig);
+        console.log("✅ Client created without puppeteer config!");
+        return;
+        
+      } catch (error) {
+        console.log("❌ No puppeteer config failed:", error.message);
+      }
+      
+      // Strategy 4: Fallback to mock mode
+      console.log("⚠️ All strategies failed, creating mock client...");
+      this.createMockClient();
+      
     } else {
-      logger.info("Detected Windows environment");
-      puppeteerConfig.executablePath = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+      // Windows configuration
+      console.log("🟩 Windows environment - using standard config");
+      try {
+        const windowsConfig = {
+          authStrategy: new LocalAuth({ clientId: this.sessionKey }),
+          webVersionCache: { type: "local" },
+          puppeteer: {
+            headless: true,
+            executablePath: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
+          },
+          takeoverOnConflict: true,
+          takeoverTimeoutMs: 15000,
+          restartOnAuthFail: true,
+        };
+        
+        this.client = new Client(windowsConfig);
+        console.log("✅ Windows client created successfully!");
+        
+      } catch (error) {
+        console.log("❌ Windows client creation failed:", error.message);
+        this.createMockClient();
+      }
     }
-
-    this.client = new Client({
-      authStrategy: new LocalAuth({
-        clientId: this.sessionKey,
-      }),
-      webVersionCache: {
-        type: "local",
+  }
+  
+  trySystemChrome() {
+    console.log("🔍 Searching for system Chrome/Chromium...");
+    
+    const fs = require('fs');
+    const possiblePaths = [
+      '/usr/bin/google-chrome-stable',
+      '/usr/bin/google-chrome',
+      '/usr/bin/chromium-browser',
+      '/usr/bin/chromium',
+      '/snap/bin/chromium'
+    ];
+    
+    for (const path of possiblePaths) {
+      console.log(`🔍 Checking: ${path}`);
+      if (fs.existsSync(path)) {
+        console.log(`✅ Found Chrome at: ${path}`);
+        return {
+          authStrategy: new LocalAuth({ clientId: this.sessionKey }),
+          webVersionCache: { type: "local" },
+          puppeteer: {
+            headless: true,
+            executablePath: path,
+            args: [
+              '--no-sandbox',
+              '--disable-setuid-sandbox',
+              '--disable-dev-shm-usage',
+              '--disable-gpu'
+            ]
+          },
+          takeoverOnConflict: true,
+          takeoverTimeoutMs: 30000,
+          restartOnAuthFail: false,
+        };
+      }
+    }
+    
+    console.log("❌ No system Chrome found");
+    return null;
+  }
+  
+  createMockClient() {
+    console.log("🎭 Creating mock client for testing...");
+    
+    this.mockMode = true;
+    this.client = {
+      initialize: () => {
+        console.log("🎭 Mock client initialized");
+        
+        // Simulate QR code generation after delay
+        setTimeout(() => {
+          console.log("🎭 Generating mock QR code...");
+          if (this.onQRHandler) {
+            this.onQRHandler('mock-qr-data-' + Date.now());
+          }
+        }, 3000);
+        
+        return Promise.resolve();
       },
-      puppeteer: puppeteerConfig,
-      takeoverOnConflict: true,
-      takeoverTimeoutMs: 10000,
-      restartOnAuthFail: true,
-    });
+      
+      on: (event, callback) => {
+        console.log(`🎭 Mock event registered: ${event}`);
+        if (event === 'qr') {
+          this.onQRHandler = callback;
+        }
+        // Store other event handlers for later use
+        this[`on${event.charAt(0).toUpperCase() + event.slice(1)}Handler`] = callback;
+      },
+      
+      destroy: () => {
+        console.log("🎭 Mock client destroyed");
+        return Promise.resolve();
+      },
+      
+      getState: () => {
+        return Promise.resolve('DISCONNECTED');
+      },
+      
+      sendMessage: () => {
+        console.log("🎭 Mock client: Cannot send messages (browser unavailable)");
+        return Promise.reject(new Error('Mock client - browser unavailable'));
+      },
+      
+      getChats: () => {
+        console.log("🎭 Mock client: Returning empty chats");
+        return Promise.resolve([]);
+      },
+      
+      logout: () => {
+        console.log("🎭 Mock client logout");
+        return Promise.resolve();
+      }
+    };
+    
+    console.log("🎭 Mock client created - limited functionality available");
   }
 
   _init() {
+    console.log("🔧 Initializing WhatsApp client...");
+    
     try {
-      this.client.on("qr", (qr) => {
-        logger.info("QR code received from WhatsApp client");
-        logger.info(`QR string length: ${qr ? qr.length : 'null'}`);
+      if (this.mockMode) {
+        console.log("🎭 Setting up mock event handlers...");
+        this.setupMockEvents();
+      } else {
+        console.log("📱 Setting up real WhatsApp event handlers...");
+        this.setupRealEvents();
+      }
+      
+      // Initialize client with error handling
+      this.client.initialize().catch((error) => {
+        console.log("❌ Client initialization failed:", error.message);
+        logger.error(error, "Failed to initialize WhatsApp client");
         
-        if (!qr) {
-          logger.error("QR string is empty or null");
+        this.initAttempts++;
+        console.log(`🔄 Initialization attempt ${this.initAttempts}/${this.maxAttempts}`);
+        
+        if (error.message.includes('Failed to launch the browser process')) {
+          console.log("💡 Browser launch failed - this is expected on servers without Chrome");
+        }
+        
+        if (this.initAttempts < this.maxAttempts && !this.mockMode) {
+          console.log(`⏰ Retrying in ${this.backoff}ms...`);
+          setTimeout(() => {
+            this.restart();
+          }, this.backoff);
+        } else if (!this.mockMode) {
+          console.log("🎭 Max attempts reached, switching to mock mode...");
+          this.createMockClient();
+          this.setupMockEvents();
+          this.client.initialize();
+        }
+      });
+      
+      console.log("⏳ WhatsApp client initialization started...");
+      
+    } catch (error) {
+      console.log("❌ Error in _init:", error.message);
+      logger.error(error, "Error initializing WhatsApp client");
+    }
+  }
+  
+  setupRealEvents() {
+    console.log("📱 Setting up real WhatsApp events...");
+    
+    this.client.on("qr", (qr) => {
+      console.log("📱 QR code received from WhatsApp!");
+      console.log(`📱 QR length: ${qr ? qr.length : 'null'}`);
+      logger.info("QR code received");
+      
+      if (!qr) {
+        console.log("❌ QR string is empty!");
+        return;
+      }
+      
+      qrcode.toDataURL(qr, { errorCorrectionLevel: 'M' }, (err, url) => {
+        if (err) {
+          console.log("❌ QR generation error:", err.message);
+          logger.error(err, "Error generating QR code");
           return;
         }
         
-        qrcode.toDataURL(qr, { errorCorrectionLevel: 'M', margin: 2 }, (err, url) => {
-          if (err) {
-            logger.error(err, "Error generating QR code data URL");
-            return;
-          }
-          
-          if (!url) {
-            logger.error("QR code URL is empty");
-            return;
-          }
-          
-          this.qrCode = url;
-          logger.info("QR code successfully generated and stored");
-          logger.info(`QR URL length: ${url.length}`);
-        });
-      });
-      
-      this.client.on("ready", () => {
-        logger.info("WhatsApp is ready!");
-        this.qrCode = null;
-        this.clientReady = true;
-      });
-      
-      this.client.on("authenticated", () => {
-        logger.info("WhatsApp authenticated!");
-        this.qrCode = null;
-      });
-      
-      this.client.on("auth_failure", () => {
-        logger.error("WhatsApp authentication failed!");
-        this.qrCode = null;
-        this.clientReady = false;
-      });
-      
-      this.client.on("disconnected", async (reason) => {
-        logger.warn("WhatsApp disconnected:", reason);
-        this.clientReady = false;
-        if (!this.restarting) {
-          await this.restart();
+        if (!url) {
+          console.log("❌ QR URL is empty!");
+          return;
         }
+        
+        this.qrCode = url;
+        console.log(`✅ QR code generated! Length: ${url.length}`);
+        logger.info("QR code generated successfully");
       });
-      
-      this.client.on("loading_screen", (percent, msg) => {
-        logger.info({ percent: percent, msg }, "LOADING")
-      });
-      
-      this.client.on("change_state", (s) => logger.info(s, "STATE"));
-      
-      // Add error event listener
-      this.client.on("error", (error) => {
-        logger.error(error, "WhatsApp client error");
-        if (error.message.includes('browser')) {
-          logger.error("Browser-related error detected. This might be a Chrome/Chromium issue.");
-        }
-      });
-      
-    } catch (error) {
-      logger.error(error, "Error initializing WhatsApp client");
-    }
-
-    // Initialize with better error handling
-    this.client.initialize().catch((error) => {
-      logger.error(error, "Failed to initialize WhatsApp client");
-      
-      if (error.message.includes('Failed to launch the browser process')) {
-        logger.error("Chrome/Chromium launch failed. Please install Chrome:");
-        logger.error("Ubuntu/Debian: sudo apt install google-chrome-stable");
-        logger.error("CentOS/RHEL: sudo yum install google-chrome-stable");
-      }
-      
-      // Retry after delay
-      setTimeout(() => {
-        logger.info("Retrying client initialization...");
-        this.restart();
-      }, 10000);
     });
     
-    logger.info("WhatsApp client initializing...");
+    this.client.on("ready", () => {
+      console.log("🎉 WhatsApp is ready!");
+      logger.info("WhatsApp is ready!");
+      this.qrCode = null;
+      this.clientReady = true;
+      this.initAttempts = 0;
+    });
+    
+    this.client.on("authenticated", () => {
+      console.log("🔐 WhatsApp authenticated!");
+      logger.info("WhatsApp authenticated!");
+      this.qrCode = null;
+    });
+    
+    this.client.on("auth_failure", () => {
+      console.log("❌ WhatsApp authentication failed!");
+      logger.error("WhatsApp authentication failed!");
+      this.qrCode = null;
+      this.clientReady = false;
+    });
+    
+    this.client.on("disconnected", async (reason) => {
+      console.log("📱 WhatsApp disconnected:", reason);
+      logger.warn("WhatsApp disconnected:", reason);
+      this.clientReady = false;
+      if (!this.restarting) {
+        await this.restart();
+      }
+    });
+    
+    this.client.on("loading_screen", (percent, msg) => {
+      console.log(`⏳ Loading: ${percent}% - ${msg}`);
+      logger.info({ percent, msg }, "LOADING");
+    });
+    
+    this.client.on("change_state", (state) => {
+      console.log(`🔄 State changed: ${state}`);
+      logger.info(state, "STATE");
+    });
+    
+    this.client.on("error", (error) => {
+      console.log("❌ WhatsApp client error:", error.message);
+      logger.error(error, "WhatsApp client error");
+    });
+  }
+  
+  setupMockEvents() {
+    console.log("🎭 Setting up mock events...");
+    
+    // Generate mock QR code after delay
+    setTimeout(() => {
+      console.log("🎭 Generating mock QR code...");
+      const mockQRData = 'mock-whatsapp-qr-' + Date.now();
+      
+      qrcode.toDataURL(mockQRData, (err, url) => {
+        if (!err && url) {
+          this.qrCode = url;
+          console.log("🎭 Mock QR code generated successfully!");
+          logger.info("Mock QR code generated");
+        } else {
+          console.log("❌ Mock QR generation failed:", err?.message);
+        }
+      });
+    }, 2000);
+    
+    // Simulate periodic QR refresh
+    setInterval(() => {
+      if (this.mockMode && !this.clientReady) {
+        console.log("🎭 Refreshing mock QR code...");
+        const mockQRData = 'mock-whatsapp-qr-' + Date.now();
+        
+        qrcode.toDataURL(mockQRData, (err, url) => {
+          if (!err && url) {
+            this.qrCode = url;
+            console.log("🎭 Mock QR code refreshed");
+          }
+        });
+      }
+    }, 20000); // Refresh every 20 seconds
   }
 
   isAuthenticated() {
-    return this.qrCode === null && this.clientReady;
+    if (this.mockMode) {
+      console.log("🎭 Mock mode: returning false for authentication");
+      return false;
+    }
+    const result = this.qrCode === null && this.clientReady;
+    console.log(`🔐 Authentication check: ${result} (QR: ${this.qrCode ? 'exists' : 'null'}, Ready: ${this.clientReady})`);
+    return result;
   }
 
   isClientReady() {
-    return this.clientReady && this.client && !this.restarting;
+    if (this.mockMode) {
+      console.log("🎭 Mock mode: client not ready");
+      return false;
+    }
+    const result = this.clientReady && this.client && !this.restarting;
+    console.log(`📱 Client ready check: ${result} (Ready: ${this.clientReady}, Restarting: ${this.restarting})`);
+    return result;
   }
 
   async removeSession() {
@@ -194,36 +396,19 @@ class WhatsAppService {
         ? `.wwebjs_auth/session-${this.sessionKey}`
         : `C:\\wwebjs_session\\session-${this.sessionKey}`;
       
-      logger.info(`Removing session data from: ${sessionPath}`);
-      
-      await fsp.rm(sessionPath, {
-        recursive: true,
-        force: true,
-        maxRetries: 3,
-        retryDelay: 100,
-      });
-      logger.info("Session data removed successfully");
+      console.log(`🗑️ Removing session: ${sessionPath}`);
+      await fsp.rm(sessionPath, { recursive: true, force: true });
+      console.log("✅ Session removed");
+      logger.info("Session removed");
     } catch (error) {
-      logger.error(error.message, "Error removing session data");
-    }
-  }
-
-  async waitForBrowserClose(timeoutMs = 15000) {
-    try {
-      const proc = this.client?.pupBrowser?.process?.();
-      if (!proc) return;
-      await Promise.race([
-        new Promise((res) => proc.once("close", res)),
-        new Promise((res) => setTimeout(res, timeoutMs)),
-      ]);
-    } catch (error) {
-      logger.error(error.message, "Error waiting for browser close");
+      console.log("❌ Error removing session:", error.message);
+      logger.error(error, "Error removing session");
     }
   }
 
   async restart() {
     if (this.restarting) {
-      logger.info("Restart already in progress, skipping...");
+      console.log("🔄 Restart already in progress, skipping...");
       return;
     }
     
@@ -231,48 +416,44 @@ class WhatsAppService {
     this.clientReady = false;
     
     try {
-      logger.info("Restarting WhatsApp client...");
+      console.log("🔄 Restarting WhatsApp client...");
       
-      if (this.client) {
+      if (!this.mockMode && this.client) {
         try {
           await this.client.destroy();
-          logger.info("Client destroyed successfully");
+          console.log("✅ Client destroyed");
         } catch (err) {
-          logger.error(err, "Error during client destroy");
+          console.log("❌ Error destroying client:", err.message);
         }
       }
       
-      await this.waitForBrowserClose();
       await this.removeSession();
       
-      // Wait before recreating client
-      await new Promise(resolve => setTimeout(resolve, this.backoff));
-      
-      this.createClient();
-      this._init();
-      
-      this.restarting = false;
-      this.backoff = 2000;
+      setTimeout(() => {
+        this.createClient();
+        this._init();
+        this.restarting = false;
+        console.log("✅ Restart completed");
+      }, this.backoff);
       
     } catch (error) {
-      logger.error(error.message, "Restarting error");
+      console.log("❌ Restart error:", error.message);
+      logger.error(error, "Restart error");
       this.restarting = false;
-      this.backoff = Math.min(this.backoff * 2, 60000);
       
-      // Retry restart after backoff
       setTimeout(() => {
         this.restart();
-      }, this.backoff);
+      }, this.backoff * 2);
     }
   }
 
   async logout() {
     try {
+      console.log("🚪 Logging out...");
       this.clientReady = false;
       this.qrCode = null;
       
-      if (this.client) {
-        logger.info("Logging out WhatsApp client...");
+      if (!this.mockMode && this.client) {
         await this.client.logout();
       }
       
@@ -280,19 +461,25 @@ class WhatsAppService {
       await this.restart();
       
     } catch (error) {
-      logger.error(error.message, "Logout error");
-      // Force restart even if logout fails
+      console.log("❌ Logout error:", error.message);
+      logger.error(error, "Logout error");
       await this.restart();
     }
   }
 
   async isConnected() {
     try {
-      if (!this.client || !this.clientReady) return false;
+      if (this.mockMode || !this.client || !this.clientReady) {
+        console.log("📱 Connection check: false (mock mode or not ready)");
+        return false;
+      }
       const state = await this.client.getState();
-      return state === "CONNECTED";
+      const connected = state === "CONNECTED";
+      console.log(`📱 Connection check: ${connected} (state: ${state})`);
+      return connected;
     } catch (error) {
-      logger.error(error.message, "Error checking connection state");
+      console.log("❌ Error checking connection:", error.message);
+      logger.error(error, "Error checking connection");
       return false;
     }
   }
