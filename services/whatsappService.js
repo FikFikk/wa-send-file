@@ -12,7 +12,6 @@ class WhatsAppService {
     this.backoff = 2000;
     this.clientReady = false;
     this.isServerEnvironment = process.platform === 'linux';
-    this.mockMode = false;
     this.initAttempts = 0;
     this.maxAttempts = 3;
     
@@ -26,9 +25,12 @@ class WhatsAppService {
     console.log("🔧 Creating WhatsApp client...");
     
     if (this.isServerEnvironment) {
-      console.log("🐧 Linux server detected - trying multiple configurations...");
+      console.log("🐧 Linux server detected - using optimized config...");
       
-      // Strategy 1: Try to find system Chrome
+      // Set environment variables for Puppeteer
+      process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = 'false';
+      
+      // Try system Chrome first
       const chromeConfig = this.trySystemChrome();
       if (chromeConfig) {
         try {
@@ -41,54 +43,72 @@ class WhatsAppService {
         }
       }
       
-      // Strategy 2: Try bundled Chromium with minimal args
+      // Use bundled Chromium with comprehensive args
       try {
-        console.log("🔄 Trying bundled Chromium with minimal config...");
-        const minimalConfig = {
-          authStrategy: new LocalAuth({ clientId: this.sessionKey }),
+        console.log("🔄 Using bundled Chromium with comprehensive config...");
+        
+        const serverConfig = {
+          authStrategy: new LocalAuth({ 
+            clientId: this.sessionKey,
+            dataPath: './.wwebjs_auth'
+          }),
           webVersionCache: { type: "local" },
           puppeteer: {
-            headless: true,
+            headless: 'new',
+            timeout: 0,
+            protocolTimeout: 0,
             args: [
               '--no-sandbox',
-              '--disable-setuid-sandbox'
-            ]
+              '--disable-setuid-sandbox',
+              '--disable-dev-shm-usage',
+              '--disable-accelerated-2d-canvas',
+              '--no-first-run',
+              '--no-zygote',
+              '--disable-gpu',
+              '--disable-web-security',
+              '--disable-features=VizDisplayCompositor',
+              '--disable-background-timer-throttling',
+              '--disable-backgrounding-occluded-windows',
+              '--disable-renderer-backgrounding',
+              '--disable-ipc-flooding-protection',
+              '--memory-pressure-off',
+              '--disable-default-apps',
+              '--disable-extensions',
+              '--disable-plugins',
+              '--disable-translate',
+              '--disable-sync',
+              '--disable-reading-from-canvas',
+              '--disable-background-networking',
+              '--disable-default-apps',
+              '--disable-extensions',
+              '--disable-sync',
+              '--disable-translate',
+              '--hide-scrollbars',
+              '--metrics-recording-only',
+              '--mute-audio',
+              '--no-first-run',
+              '--safebrowsing-disable-auto-update',
+              '--ignore-gpu-blacklist',
+              '--ignore-certificate-errors',
+              '--ignore-ssl-errors',
+              '--ignore-certificate-errors-spki-list'
+            ],
+            ignoreHTTPSErrors: true,
+            devtools: false
           },
           takeoverOnConflict: true,
-          takeoverTimeoutMs: 30000,
+          takeoverTimeoutMs: 0,
           restartOnAuthFail: false,
         };
         
-        this.client = new Client(minimalConfig);
-        console.log("✅ Client created with minimal Chromium config!");
+        this.client = new Client(serverConfig);
+        console.log("✅ Server client created with bundled Chromium!");
         return;
         
       } catch (error) {
-        console.log("❌ Minimal Chromium failed:", error.message);
+        console.log("❌ Server config failed:", error.message);
+        throw new Error(`Failed to create WhatsApp client: ${error.message}`);
       }
-      
-      // Strategy 3: Try without puppeteer config
-      try {
-        console.log("🔄 Trying without puppeteer config...");
-        const noPuppeteerConfig = {
-          authStrategy: new LocalAuth({ clientId: this.sessionKey }),
-          webVersionCache: { type: "local" },
-          takeoverOnConflict: true,
-          takeoverTimeoutMs: 30000,
-          restartOnAuthFail: false,
-        };
-        
-        this.client = new Client(noPuppeteerConfig);
-        console.log("✅ Client created without puppeteer config!");
-        return;
-        
-      } catch (error) {
-        console.log("❌ No puppeteer config failed:", error.message);
-      }
-      
-      // Strategy 4: Fallback to mock mode
-      console.log("⚠️ All strategies failed, creating mock client...");
-      this.createMockClient();
       
     } else {
       // Windows configuration
@@ -112,7 +132,7 @@ class WhatsAppService {
         
       } catch (error) {
         console.log("❌ Windows client creation failed:", error.message);
-        this.createMockClient();
+        throw error;
       }
     }
   }
@@ -134,7 +154,10 @@ class WhatsAppService {
       if (fs.existsSync(path)) {
         console.log(`✅ Found Chrome at: ${path}`);
         return {
-          authStrategy: new LocalAuth({ clientId: this.sessionKey }),
+          authStrategy: new LocalAuth({ 
+            clientId: this.sessionKey,
+            dataPath: './.wwebjs_auth'
+          }),
           webVersionCache: { type: "local" },
           puppeteer: {
             headless: true,
@@ -156,74 +179,13 @@ class WhatsAppService {
     console.log("❌ No system Chrome found");
     return null;
   }
-  
-  createMockClient() {
-    console.log("🎭 Creating mock client for testing...");
-    
-    this.mockMode = true;
-    this.client = {
-      initialize: () => {
-        console.log("🎭 Mock client initialized");
-        
-        // Simulate QR code generation after delay
-        setTimeout(() => {
-          console.log("🎭 Generating mock QR code...");
-          if (this.onQRHandler) {
-            this.onQRHandler('mock-qr-data-' + Date.now());
-          }
-        }, 3000);
-        
-        return Promise.resolve();
-      },
-      
-      on: (event, callback) => {
-        console.log(`🎭 Mock event registered: ${event}`);
-        if (event === 'qr') {
-          this.onQRHandler = callback;
-        }
-        // Store other event handlers for later use
-        this[`on${event.charAt(0).toUpperCase() + event.slice(1)}Handler`] = callback;
-      },
-      
-      destroy: () => {
-        console.log("🎭 Mock client destroyed");
-        return Promise.resolve();
-      },
-      
-      getState: () => {
-        return Promise.resolve('DISCONNECTED');
-      },
-      
-      sendMessage: () => {
-        console.log("🎭 Mock client: Cannot send messages (browser unavailable)");
-        return Promise.reject(new Error('Mock client - browser unavailable'));
-      },
-      
-      getChats: () => {
-        console.log("🎭 Mock client: Returning empty chats");
-        return Promise.resolve([]);
-      },
-      
-      logout: () => {
-        console.log("🎭 Mock client logout");
-        return Promise.resolve();
-      }
-    };
-    
-    console.log("🎭 Mock client created - limited functionality available");
-  }
 
   _init() {
     console.log("🔧 Initializing WhatsApp client...");
     
     try {
-      if (this.mockMode) {
-        console.log("🎭 Setting up mock event handlers...");
-        this.setupMockEvents();
-      } else {
-        console.log("📱 Setting up real WhatsApp event handlers...");
-        this.setupRealEvents();
-      }
+      console.log("📱 Setting up WhatsApp event handlers...");
+      this.setupEvents();
       
       // Initialize client with error handling
       this.client.initialize().catch((error) => {
@@ -234,19 +196,26 @@ class WhatsAppService {
         console.log(`🔄 Initialization attempt ${this.initAttempts}/${this.maxAttempts}`);
         
         if (error.message.includes('Failed to launch the browser process')) {
-          console.log("💡 Browser launch failed - this is expected on servers without Chrome");
+          console.log("💡 Browser launch failed - missing system libraries");
+          console.log("📝 Run this command to fix:");
+          console.log("📝 chmod +x fix-deps.sh && sudo ./fix-deps.sh");
         }
         
-        if (this.initAttempts < this.maxAttempts && !this.mockMode) {
+        if (this.initAttempts < this.maxAttempts) {
           console.log(`⏰ Retrying in ${this.backoff}ms...`);
           setTimeout(() => {
             this.restart();
           }, this.backoff);
-        } else if (!this.mockMode) {
-          console.log("🎭 Max attempts reached, switching to mock mode...");
-          this.createMockClient();
-          this.setupMockEvents();
-          this.client.initialize();
+        } else {
+          console.log("❌ Max attempts reached!");
+          console.log("📝 Install dependencies with: sudo ./fix-deps.sh");
+          console.log("⚠️ Service will retry every 30 seconds...");
+          
+          // Keep retrying every 30 seconds
+          setTimeout(() => {
+            this.initAttempts = 0; // Reset attempts
+            this.restart();
+          }, 30000);
         }
       });
       
@@ -258,13 +227,13 @@ class WhatsAppService {
     }
   }
   
-  setupRealEvents() {
-    console.log("📱 Setting up real WhatsApp events...");
+  setupEvents() {
+    console.log("📱 Setting up WhatsApp events...");
     
     this.client.on("qr", (qr) => {
-      console.log("📱 QR code received from WhatsApp!");
+      console.log("📱 REAL QR code received from WhatsApp!");
       console.log(`📱 QR length: ${qr ? qr.length : 'null'}`);
-      logger.info("QR code received");
+      logger.info("QR code received from WhatsApp");
       
       if (!qr) {
         console.log("❌ QR string is empty!");
@@ -284,8 +253,9 @@ class WhatsAppService {
         }
         
         this.qrCode = url;
-        console.log(`✅ QR code generated! Length: ${url.length}`);
-        logger.info("QR code generated successfully");
+        console.log(`✅ REAL WhatsApp QR code generated! Length: ${url.length}`);
+        console.log("✅ This QR code can be scanned with WhatsApp mobile app");
+        logger.info("Real WhatsApp QR code generated successfully");
       });
     });
     
@@ -334,57 +304,14 @@ class WhatsAppService {
       logger.error(error, "WhatsApp client error");
     });
   }
-  
-  setupMockEvents() {
-    console.log("🎭 Setting up mock events...");
-    
-    // Generate mock QR code after delay
-    setTimeout(() => {
-      console.log("🎭 Generating mock QR code...");
-      const mockQRData = 'mock-whatsapp-qr-' + Date.now();
-      
-      qrcode.toDataURL(mockQRData, (err, url) => {
-        if (!err && url) {
-          this.qrCode = url;
-          console.log("🎭 Mock QR code generated successfully!");
-          logger.info("Mock QR code generated");
-        } else {
-          console.log("❌ Mock QR generation failed:", err?.message);
-        }
-      });
-    }, 2000);
-    
-    // Simulate periodic QR refresh
-    setInterval(() => {
-      if (this.mockMode && !this.clientReady) {
-        console.log("🎭 Refreshing mock QR code...");
-        const mockQRData = 'mock-whatsapp-qr-' + Date.now();
-        
-        qrcode.toDataURL(mockQRData, (err, url) => {
-          if (!err && url) {
-            this.qrCode = url;
-            console.log("🎭 Mock QR code refreshed");
-          }
-        });
-      }
-    }, 20000); // Refresh every 20 seconds
-  }
 
   isAuthenticated() {
-    if (this.mockMode) {
-      console.log("🎭 Mock mode: returning false for authentication");
-      return false;
-    }
     const result = this.qrCode === null && this.clientReady;
     console.log(`🔐 Authentication check: ${result} (QR: ${this.qrCode ? 'exists' : 'null'}, Ready: ${this.clientReady})`);
     return result;
   }
 
   isClientReady() {
-    if (this.mockMode) {
-      console.log("🎭 Mock mode: client not ready");
-      return false;
-    }
     const result = this.clientReady && this.client && !this.restarting;
     console.log(`📱 Client ready check: ${result} (Ready: ${this.clientReady}, Restarting: ${this.restarting})`);
     return result;
@@ -418,7 +345,7 @@ class WhatsAppService {
     try {
       console.log("🔄 Restarting WhatsApp client...");
       
-      if (!this.mockMode && this.client) {
+      if (this.client) {
         try {
           await this.client.destroy();
           console.log("✅ Client destroyed");
@@ -453,7 +380,7 @@ class WhatsAppService {
       this.clientReady = false;
       this.qrCode = null;
       
-      if (!this.mockMode && this.client) {
+      if (this.client) {
         await this.client.logout();
       }
       
@@ -469,8 +396,8 @@ class WhatsAppService {
 
   async isConnected() {
     try {
-      if (this.mockMode || !this.client || !this.clientReady) {
-        console.log("📱 Connection check: false (mock mode or not ready)");
+      if (!this.client || !this.clientReady) {
+        console.log("📱 Connection check: false (not ready)");
         return false;
       }
       const state = await this.client.getState();
