@@ -14,6 +14,11 @@ class WhatsAppService {
     this.backoff = 2000;
     this.clientReady = false;
 
+    this.createClient();
+    this._init();
+  }
+
+  createClient() {
     this.client = new Client({
       authStrategy: new LocalAuth({
         clientId: this.sessionKey,
@@ -24,7 +29,6 @@ class WhatsAppService {
       },
       puppeteer: {
         headless: true,
-        // Auto-detect Chrome path for different OS
         executablePath: this.getChromePath(),
         args: [
           "--no-sandbox",
@@ -33,13 +37,22 @@ class WhatsAppService {
           "--disable-gpu",
           "--disable-web-security",
           "--disable-features=VizDisplayCompositor",
+          "--no-first-run",
+          "--no-zygote",
+          "--disable-background-timer-throttling",
+          "--disable-backgrounding-occluded-windows",
+          "--disable-renderer-backgrounding",
+          "--disable-ipc-flooding-protection",
+          "--mute-audio",
+          "--disable-default-apps",
+          "--disable-extensions",
+          "--disable-component-extensions-with-background-pages",
         ],
       },
       takeoverOnConflict: true,
       takeoverTimeoutMs: 5000,
       restartOnAuthFail: true,
     });
-    this._init();
   }
 
   getChromePath() {
@@ -48,11 +61,11 @@ class WhatsAppService {
 
     if (platform === 'linux') {
       possiblePaths.push(
+        '/snap/bin/chromium',           // Snap installed chromium (your case)
         '/usr/bin/google-chrome',
         '/usr/bin/google-chrome-stable',
         '/usr/bin/chromium',
-        '/usr/bin/chromium-browser',
-        '/snap/bin/chromium'
+        '/usr/bin/chromium-browser'
       );
     } else if (platform === 'darwin') {
       possiblePaths.push(
@@ -67,18 +80,30 @@ class WhatsAppService {
 
     // Find the first existing path
     for (const path of possiblePaths) {
-      if (fs.existsSync(path)) {
-        logger.info(`Using Chrome at: ${path}`);
-        return path;
+      try {
+        if (fs.existsSync(path)) {
+          logger.info(`Using Chrome/Chromium at: ${path}`);
+          return path;
+        }
+      } catch (error) {
+        logger.warn(`Error checking path ${path}: ${error.message}`);
       }
     }
 
-    logger.warn('Chrome executable not found, using default');
-    return undefined; // Let puppeteer auto-detect
+    logger.error('Chrome/Chromium executable not found! Please install Chrome or Chromium.');
+    // Force return the snap chromium path since you have it installed
+    if (platform === 'linux') {
+      return '/snap/bin/chromium';
+    }
+    return undefined;
   }
 
   _init() {
     try {
+      // Log the Chrome path being used
+      const chromePath = this.getChromePath();
+      logger.info(`Initializing WhatsApp client with Chrome path: ${chromePath}`);
+      
       this.client.on("qr", (qr) => {
         logger.info("QR code refreshed");
         qrcode.toDataURL(qr, (err, url) => {
@@ -192,6 +217,7 @@ class WhatsAppService {
       await this.removeSession();
       
       setTimeout(() => {
+        this.createClient();
         this._init();
         this.restarting = false;
         this.backoff = 2000;
